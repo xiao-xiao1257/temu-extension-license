@@ -1,0 +1,79 @@
+name: 管理扩展授权
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 操作
+        required: true
+        type: choice
+        options:
+          - issue
+          - revoke
+      github_user_id:
+        description: 扩展显示的GitHub数字用户ID
+        required: true
+        type: string
+      github_login:
+        description: GitHub用户名
+        required: true
+        type: string
+      device_id:
+        description: 扩展显示的浏览器安装码 撤销时可以留空
+        required: false
+        type: string
+      expires_at:
+        description: 到期日期 YYYY-MM-DD 撤销时可以留空
+        required: false
+        default: "2027-12-31"
+        type: string
+      offline_grace_hours:
+        description: 断网后允许继续使用的小时数 1到24
+        required: false
+        default: "24"
+        type: string
+      note:
+        description: 管理备注 不会写入授权文件
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 生成签名授权文件
+        env:
+          LICENSE_PRIVATE_KEY: ${{ secrets.LICENSE_PRIVATE_KEY }}
+          OPERATION: ${{ inputs.operation }}
+          LICENSE_GITHUB_USER_ID: ${{ inputs.github_user_id }}
+          LICENSE_GITHUB_LOGIN: ${{ inputs.github_login }}
+          LICENSE_DEVICE_ID: ${{ inputs.device_id }}
+          LICENSE_EXPIRES_AT: ${{ inputs.expires_at }}
+          LICENSE_OFFLINE_GRACE_HOURS: ${{ inputs.offline_grace_hours }}
+        run: node scripts/manage-license.mjs
+
+      - name: 提交授权变更
+        env:
+          OPERATION: ${{ inputs.operation }}
+          LICENSE_GITHUB_USER_ID: ${{ inputs.github_user_id }}
+        run: |
+          git add licenses
+          if git diff --cached --quiet; then
+            echo "授权文件没有变化"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "license: ${OPERATION} ${LICENSE_GITHUB_USER_ID}"
+          git push
