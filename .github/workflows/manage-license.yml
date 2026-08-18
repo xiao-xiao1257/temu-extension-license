@@ -1,25 +1,21 @@
-name: 管理扩展授权
+name: 管理扩展授权码
 
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 操作
+        description: 操作 issue签发或续期 revoke撤销
         required: true
         type: choice
         options:
           - issue
           - revoke
-      github_user_id:
-        description: 扩展显示的GitHub数字用户ID
-        required: true
-        type: string
-      github_login:
-        description: GitHub用户名
-        required: true
-        type: string
       device_id:
-        description: 扩展显示的浏览器安装码 撤销时可以留空
+        description: 用户扩展显示的设备码 撤销时可以留空
+        required: false
+        type: string
+      activation_code:
+        description: 首次签发留空自动生成 续期或撤销填写原授权码
         required: false
         type: string
       expires_at:
@@ -33,12 +29,16 @@ on:
         default: "24"
         type: string
       note:
-        description: 管理备注 不会写入授权文件
+        description: 管理备注 不会写入公开授权文件
         required: false
         type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: license-management
+  cancel-in-progress: false
 
 jobs:
   manage:
@@ -53,12 +53,12 @@ jobs:
           node-version: "22"
 
       - name: 生成签名授权文件
+        id: license
         env:
           LICENSE_PRIVATE_KEY: ${{ secrets.LICENSE_PRIVATE_KEY }}
           OPERATION: ${{ inputs.operation }}
-          LICENSE_GITHUB_USER_ID: ${{ inputs.github_user_id }}
-          LICENSE_GITHUB_LOGIN: ${{ inputs.github_login }}
           LICENSE_DEVICE_ID: ${{ inputs.device_id }}
+          LICENSE_ACTIVATION_CODE: ${{ inputs.activation_code }}
           LICENSE_EXPIRES_AT: ${{ inputs.expires_at }}
           LICENSE_OFFLINE_GRACE_HOURS: ${{ inputs.offline_grace_hours }}
         run: node scripts/manage-license.mjs
@@ -66,7 +66,6 @@ jobs:
       - name: 提交授权变更
         env:
           OPERATION: ${{ inputs.operation }}
-          LICENSE_GITHUB_USER_ID: ${{ inputs.github_user_id }}
         run: |
           git add licenses
           if git diff --cached --quiet; then
@@ -75,5 +74,8 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "license: ${OPERATION} ${LICENSE_GITHUB_USER_ID}"
+          git commit -m "license: ${OPERATION}"
           git push
+
+      - name: 显示授权码
+        run: echo "本次授权码为 ${{ steps.license.outputs.activation_code }}"
